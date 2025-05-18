@@ -22,30 +22,31 @@ def print_title():
     ascii_title = pyfiglet.figlet_format("RBX Cookie Checker")
     print(f"{WHITE}{ascii_title}{RESET}")
 
-async def check_cookie(session, cookie, filter_valid):
+async def check_cookie(session, original_cookie, filter_valid):
+    cookie = original_cookie
+    if cookie.startswith('.ROBLOSECURITY='):
+        cookie = cookie.replace('.ROBLOSECURITY=', '')
+
     headers = {'Cookie': f'.ROBLOSECURITY={cookie}'}
     try:
         async with session.get("https://users.roblox.com/v1/users/authenticated", headers=headers, timeout=10) as resp1:
             if resp1.status != 200:
                 if not filter_valid:
-                    print(f"{RED}[-] 불량 쿠키\n▶ {cookie}{RESET}\n")
-                return 'invalid', cookie
+                    print(f"{RED}[-] 불량 쿠키입니다{RESET}")
+                return 'invalid', original_cookie, None, None
 
             user_info = await resp1.json()
 
         async with session.get("https://economy.roblox.com/v1/user/currency", headers=headers, timeout=10) as resp2:
             robux = (await resp2.json()).get('robux', '알 수 없음') if resp2.status == 200 else '알 수 없음'
 
-        print(f"{GREEN}[+] 유효한 쿠키{RESET}")
-        print(f"{GREEN} - 사용자명: {user_info.get('name')}")
-        print(f" - Robux: {robux}")
-        print(f" - 쿠키: {cookie}{RESET}\n")
-        return 'valid', cookie
+        print(f"{GREEN}[+] 유효 쿠키입니다{RESET}")
+        return 'valid', original_cookie, user_info.get('name'), robux
 
     except Exception:
         if not filter_valid:
-            print(f"{RED}[-] 오류 쿠키\n▶ {cookie}{RESET}\n")
-        return 'invalid', cookie
+            print(f"{RED}[-] 오류 쿠키입니다{RESET}")
+        return 'invalid', original_cookie, None, None
 
 async def process_cookies(cookies, filter_valid):
     connector = aiohttp.TCPConnector(limit=100)
@@ -61,7 +62,7 @@ def input_cookies():
     try:
         while True:
             line = input()
-            if line.strip():
+            if line.strip() and (line.startswith('.ROBLOSECURITY=') or line.startswith('_|')):
                 cookies.add(line.strip())
     except EOFError:
         pass
@@ -108,7 +109,10 @@ def select_and_read_file(file_map):
         if choice in file_map:
             try:
                 with open(file_map[choice], 'r') as f:
-                    cookies = {line.strip() for line in f if line.strip()}
+                    cookies = {
+                        line.strip() for line in f
+                        if line.strip().startswith('.ROBLOSECURITY=') or line.strip().startswith('_|')
+                    }
                     print(f"{GREEN}{len(cookies)}개의 쿠키를 불러왔습니다.{RESET}")
                     return list(cookies)
             except Exception as e:
@@ -125,7 +129,6 @@ def save_valid_cookies(valid_list):
     if want_save != 'y':
         return
 
-    unique_valid = list(set(valid_list))
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
     filename = f"유효쿠키_{timestamp}.txt"
     temp_path = filename
@@ -133,8 +136,8 @@ def save_valid_cookies(valid_list):
 
     try:
         with open(temp_path, 'w') as f:
-            for cookie in unique_valid:
-                f.write(cookie + '\n')
+            for name, robux, cookie in valid_list:
+                f.write(f"유저네임 : {name} | Robux : {robux}\n{cookie}\n\n")
 
         shutil.move(temp_path, save_path)
         print(f"{GREEN}유효 쿠키가 저장되었습니다: {save_path}{RESET}")
@@ -173,7 +176,7 @@ def main():
 
         filter_valid = input(f"{CYAN}유효한 쿠키만 출력할까요? (y/n): {RESET}").strip().lower() == 'y'
 
-        print(f"\n{GREEN}[+] 총 {len(cookies)}개의 쿠키를 확인합니다...{RESET}\n")
+        print(f"\n{GREEN}[+] 총 {len(cookies)}개의 쿠키를 확인 합니다...{RESET}\n")
         start_time = time.time()
         try:
             results = asyncio.run(process_cookies(cookies, filter_valid))
@@ -182,12 +185,16 @@ def main():
             results = []
 
         end_time = time.time()
-        valid = [cookie for result, cookie in results if result == 'valid']
-        invalid = [cookie for result, cookie in results if result == 'invalid']
         duration = end_time - start_time
         rps = len(results) / duration if duration > 0 else 0
 
-        print(f"{YELLOW}검사 완료 - 총 {len(results)}개 | 유효: {len(valid)}, 불량: {len(invalid)}{RESET}")
+        valid = []
+        for result, cookie, name, robux in results:
+            if result == 'valid':
+                print(f"{GREEN}유저네임 : {name} | Robux : {robux}\n{cookie}{RESET}\n")
+                valid.append((name, robux, cookie))
+
+        print(f"{YELLOW}검사 완료 - 총 {len(results)}개 | 유효: {len(valid)}, 불량: {len(results)-len(valid)}{RESET}")
         print(f"{CYAN}소요 시간: {duration:.2f}초 | RPS: {rps:.2f}{RESET}")
 
         save_valid_cookies(valid)
